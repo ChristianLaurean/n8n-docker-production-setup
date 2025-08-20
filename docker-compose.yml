@@ -1,0 +1,119 @@
+version: "3.9"
+
+volumes:
+  postgres_data:
+  redis_data:
+  n8n_data:
+  npm_storage:
+  npm_letsencrypt:
+
+networks:
+  n8n-network:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=${DB_POSTGRESDB_USER}
+      - POSTGRES_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+      - POSTGRES_DB=${DB_POSTGRESDB_DATABASE}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - n8n-network
+
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: always
+    volumes:
+      - redis_data:/data
+    networks:
+      - n8n-network
+
+  n8n-main:
+    image: n8nio/n8n:1.107.4
+    container_name: n8n-main
+    restart: always
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=${DB_POSTGRESDB_HOST}
+      - DB_POSTGRESDB_PORT=${DB_POSTGRESDB_PORT}
+      - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
+      - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
+      - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+      - DB_POSTGRESDB_SCHEMA=${DB_POSTGRESDB_SCHEMA}
+
+      # Seguridad
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_SECURE_COOKIE=true
+
+      # Config general
+      - N8N_HOST=${N8N_HOST}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
+      - TZ=${TZ}
+
+      # Queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_PUSH_BACKEND=queue
+      - OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - n8n-network
+
+  n8n-worker:
+    image: n8nio/n8n:1.107.4
+    container_name: n8n-worker
+    restart: always
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=${DB_POSTGRESDB_HOST}
+      - DB_POSTGRESDB_PORT=${DB_POSTGRESDB_PORT}
+      - DB_POSTGRESDB_DATABASE=${DB_POSTGRESDB_DATABASE}
+      - DB_POSTGRESDB_USER=${DB_POSTGRESDB_USER}
+      - DB_POSTGRESDB_PASSWORD=${DB_POSTGRESDB_PASSWORD}
+      - DB_POSTGRESDB_SCHEMA=${DB_POSTGRESDB_SCHEMA}
+
+      # Queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_PUSH_BACKEND=queue
+
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
+      - TZ=${TZ}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - n8n-network
+    command: worker
+
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: nginx-proxy-manager
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "81:81"
+    volumes:
+      - npm_storage:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    environment:
+      - DISABLE_IPV6=true
+      - TZ=${TZ}
+    networks:
+      - n8n-network
